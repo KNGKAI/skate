@@ -4,11 +4,45 @@ using UnityEngine;
 
 public class Skateboard : MonoBehaviour
 {
+    public float rotate;
+
+    private float trickX;
+    private float trickY;
+
+    private bool tricking;
+
+    public bool Tricking
+    {
+        get
+        {
+            return (tricking);
+        }
+    }
+
     public static float Length
     {
         get
         {
             return (0.8f);
+        }
+    }
+
+    private void Awake()
+    {
+        this.tricking = false;
+    }
+
+    private void FixedUpdate()
+    {
+        if (this.tricking)
+        {
+            float x;
+            float y;
+
+            x = this.trickX * Time.fixedDeltaTime * rotate;
+            y = this.trickY * Time.fixedDeltaTime * rotate;
+            this.transform.Rotate(0.0f, 0.0f, x, Space.Self);
+            this.transform.Rotate(0.0f, y, 0.0f, Space.Self);
         }
     }
 
@@ -62,5 +96,23 @@ public class Skateboard : MonoBehaviour
     public void Forward(Vector3 forward, Vector3 upward)
     {
         this.transform.rotation = Quaternion.LookRotation(forward, upward);
+    }
+
+    public void Level()
+    {
+        this.transform.rotation = Quaternion.LookRotation(Slope(), transform.up);
+    }
+
+    public void Trick(float x, float y)
+    {
+        this.tricking = true;
+        this.trickX = Mathf.Clamp(x, -1.0f, 1.0f);
+        this.trickY = Mathf.Clamp(y, -1.0f, 1.0f);
+    }
+
+    public void Catch()
+    {
+        this.tricking = false;
+        this.transform.localRotation = Quaternion.identity;
     }
 }

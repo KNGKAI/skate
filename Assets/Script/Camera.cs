@@ -14,11 +14,11 @@ public class Camera : MonoBehaviour
         if (target.Grounded)
         {
             offset = -target.transform.forward;
-            offset.y = 0;
+            //offset.y = 0;
             offset = offset.normalized * distance;
             offset.y = height;
         }
-        transform.position = Vector3.Lerp(transform.position, target.transform.position + offset, 0.1f);
+        transform.position = Vector3.Lerp(transform.position, target.transform.position + offset, 0.03f);
         transform.LookAt(target.transform);
     }
 }
