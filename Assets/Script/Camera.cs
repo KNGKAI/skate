@@ -11,14 +11,14 @@ public class Camera : MonoBehaviour
 
     void Update()
     {
-        if (target.Grounded)
+        if (target.Grounded && target.State != CharacterState.Grind)
         {
             offset = -target.transform.forward;
             //offset.y = 0;
             offset = offset.normalized * distance;
             offset.y = height;
         }
-        transform.position = Vector3.Lerp(transform.position, target.transform.position + offset, 0.03f);
+        transform.position = Vector3.Lerp(transform.position, target.transform.position + offset, 0.1f);
         transform.LookAt(target.transform);
     }
 }

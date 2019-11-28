@@ -10,7 +10,8 @@ public enum CharacterState
     Brake,
     Land,
     Rotate_Left,
-    Rotate_Right
+    Rotate_Right,
+    Grind
 }
 
 [RequireComponent(typeof(Rigidbody)), RequireComponent(typeof(CapsuleCollider))]
@@ -26,6 +27,14 @@ public class Character : MonoBehaviour
     [Header("Slopes")]
     public float maxSlope;
     public float minSlope;
+    [Header("Grind")]
+    public float grindDistance;
+    public float grindRadius;
+    public float grindMinSpeed;
+    public float grindAngleDeadzone;
+    public float magnetStrength;
+    [Header("Debug")]
+    public bool drawDetection;
 
     private bool busy;
     private bool grounded;
@@ -55,18 +64,17 @@ public class Character : MonoBehaviour
             {
                 this.State = CharacterState.Land;
             }
+            Grind();
             Ground(hit.point, hit.normal);
         }
         else
         {
             Air();
+            Magnet();
         }
         Wall();
         prevGrounded = Grounded;
-    }
 
-    private void LateUpdate()
-    {
         if (stateIndex > 0)
         {
             stateIndex--;
@@ -74,6 +82,14 @@ public class Character : MonoBehaviour
         else
         {
             State = CharacterState.Idle;
+        }
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (drawDetection)
+        {
+            DrawGrindDetection();
         }
     }
 
@@ -151,6 +167,11 @@ public class Character : MonoBehaviour
                 this.Rig.velocity = forward * currentSpeed;
                 this.transform.Rotate(0.0f, rotate * Time.fixedDeltaTime, 0.0f, Space.Self);
                 break;
+            case CharacterState.Grind:
+                this.transform.position = point;
+                //this.transform.rotation = rotation;
+                this.Rig.velocity = Rig.velocity.normalized * currentSpeed;
+                break;
             default:
                 break;
         }
@@ -191,24 +212,22 @@ public class Character : MonoBehaviour
         Vector3 normal;
         Vector3 velocity;
         Vector3 direction;
-        float distance;
         int limit;
 
         velocity = Rig.velocity;
         current = transform.position;
-        prev = current;
-        current += velocity * Time.fixedDeltaTime;
-        direction = current - prev;
-        velocity.y -= Time.fixedDeltaTime * 9.8f;
-        distance = Vector3.Distance(current, prev);
-        limit = 1024;
-        while (!Physics.Raycast(current, direction, out hit, distance, Character.Mask))
+        void Simulate()
         {
             prev = current;
             current += velocity * Time.fixedDeltaTime;
             direction = current - prev;
             velocity.y -= Time.fixedDeltaTime * 9.8f;
-            distance = Vector3.Distance(current, prev);
+        }
+        Simulate();
+        limit = 1024;
+        while (!Physics.Raycast(current, direction, out hit, velocity.magnitude, Character.Mask))
+        {
+            Simulate();
             limit--;
             if (limit <= 0)
             {
@@ -236,6 +255,71 @@ public class Character : MonoBehaviour
         }
     }
 
+    private void Magnet()
+    {
+        Vector3 current;
+        Vector3 prev;
+        Vector3 velocity;
+        Vector3 direction;
+        Vector3 push;
+        Vector3 right;
+        int it;
+        float distance;
+        float prevDistance;
+        int count;
+
+        right = Vector3.Cross(transform.up, Rig.velocity);
+        void Simulate(float offset)
+        {
+            prev = current;
+            velocity += right * offset * Time.fixedDeltaTime;
+            velocity.y -= Time.fixedDeltaTime * 9.8f;
+            current += velocity * Time.fixedDeltaTime;
+            direction = current - prev;
+        }
+        push = Vector3.zero;
+        it = 32;
+        distance = 0;
+        prevDistance = 0;
+        count = 0;
+        for (int z = -it; z <= it; z++)
+        {
+            velocity = Rig.velocity;
+            current = transform.position;
+            if (z > -it)
+            {
+                prevDistance = distance;
+            }
+            distance = 0;
+            for (int i = 0; i < 128; i++)
+            {
+                Simulate(z/ 10.0f);
+                if (Physics.Raycast(current, direction, out RaycastHit hit, direction.magnitude))
+                {
+                    break;
+                }
+                distance += direction.magnitude;
+            }
+            if (z > -it && Mathf.Abs(distance - prevDistance) > grindDistance)
+            {
+                int x;
+
+                x = it - Mathf.Abs(z);
+                if (distance - prevDistance > 0)
+                {
+                    x = -x;
+                }
+                push += transform.right * x / it * magnetStrength;
+                count++;
+            }
+        }
+        if (count > 0)
+        {
+            push /= count;
+            this.Rig.velocity += push * Time.deltaTime;
+        }
+    }
+
     private void Land(Vector3 point, Vector3 normal)
     {
         Quaternion rotation;
@@ -250,10 +334,12 @@ public class Character : MonoBehaviour
 
             scale = this.transform.localScale;
             scale.x = -scale.x;
+            scale.z = -scale.z;
             this.transform.localScale = scale;
             forward = -forward;
         }
         rotation = Quaternion.LookRotation(forward, normal);
+        //this.currentSpeed = Vector3.ProjectOnPlane(Rig.velocity, transform.up).magnitude;
         this.currentSpeed *= Mathf.Cos(Mathf.Deg2Rad * Vector3.Angle(forward, velocity));
         this.transform.position = point;
         this.transform.rotation = rotation;
@@ -287,6 +373,82 @@ public class Character : MonoBehaviour
                 this.transform.rotation = Quaternion.LookRotation(forward, transform.up);
                 this.currentSpeed /= 2.0f;
                 return;
+            }
+        }
+    }
+
+    private void Grind()
+    {
+        Vector3 root;
+        Vector3 position;
+        Vector3 direction;
+        float angle;
+
+        angle = 30.0f;
+        root = transform.position - transform.up * 0.01f;
+        for (float i = 0; i < 360.0f; i += angle)
+        {
+            position = new Vector3(-Mathf.Sin(i), 0.0f, Mathf.Cos(i));
+            position = root - (transform.rotation * position) * grindRadius;
+            direction = root - position;
+            if (!Physics.Raycast(position + transform.up * grindRadius * 2.0f, -transform.up, grindRadius * 2.0f, Character.Mask))
+            {
+                if (Physics.Raycast(position, direction, out RaycastHit hit, grindRadius * 0.95f, Character.Mask))
+                {
+                    if (Mathf.Abs(Vector3.Angle(transform.up, hit.normal) - 90.0f) < grindAngleDeadzone &&
+                        Mathf.Abs(Vector3.Angle(Vector3.ProjectOnPlane(Rig.velocity, transform.up), hit.normal) - 90.0f) < 30.0f)
+                    {
+                        if (this.currentSpeed < grindMinSpeed)
+                        {
+                            this.Rig.velocity = Vector3.ProjectOnPlane(hit.normal, transform.up);
+                        }
+                        else if (this.State == CharacterState.Olie)
+                        {
+                            this.Rig.velocity = Rig.velocity + hit.normal;
+                        }
+                        else
+                        {
+                            this.Rig.velocity = Vector3.ProjectOnPlane(Vector3.ProjectOnPlane(Rig.velocity, hit.normal), transform.up);
+                            this.State = CharacterState.Grind;
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private void DrawGrindDetection()
+    {
+        Vector3 current;
+        Vector3 prev;
+        Vector3 velocity;
+        Vector3 direction;
+        Vector3 right;
+        int it;
+
+        right = Vector3.Cross(transform.up, Rig.velocity).normalized;
+        void Simulate(float offset)
+        {
+            prev = current;
+            velocity += right * offset * Time.fixedDeltaTime;
+            velocity.y -= Time.fixedDeltaTime * 9.8f;
+            current += velocity * Time.fixedDeltaTime;
+            direction = current - prev;
+        }
+        it = 32;
+        for (int z = -it; z <= it; z++)
+        {
+            velocity = Rig.velocity;
+            current = transform.position;
+            for (int i = 0; i < 128; i++)
+            {
+                Simulate(z / 10.0f);
+                if (Physics.Raycast(current, direction, out RaycastHit hit, direction.magnitude))
+                {
+                    break;
+                }
+                Gizmos.DrawLine(current, current + direction);
             }
         }
     }
@@ -335,6 +497,14 @@ public class Character : MonoBehaviour
         }
     }
 
+    public float Speed
+    {
+        get
+        {
+            return (this.currentSpeed);
+        }
+    }
+
     public CharacterState State
     {
         get
@@ -364,6 +534,9 @@ public class Character : MonoBehaviour
                     this.stateIndex = 1;
                     break;
                 case CharacterState.Rotate_Right:
+                    this.stateIndex = 1;
+                    break;
+                case CharacterState.Grind:
                     this.stateIndex = 1;
                     break;
                 default:
